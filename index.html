@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>AI Inference Benchmark · JS Real-Time Demo</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.17.0/dist/tf-backend-wasm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header>
+        <h1>AI Inference <span>Benchmark</span></h1>
+        <p>Real-Time JS Demo · 3-Stage Latency · QoE Metrics · TensorFlow.js</p>
+    </header>
+
+    <div class="control-row">
+        <span class="row-label">Model</span>
+        <button class="pill model-pill" data-model="coco-v2" style="--active-c: var(--c-coco-v2)">
+            <span class="dot"></span>COCO-SSD MNv2 · Detection
+        </button>
+        <button class="pill model-pill" data-model="coco-lite" style="--active-c: var(--c-coco-lite)">
+            <span class="dot"></span>COCO-SSD Lite · Detection
+        </button>
+        <button class="pill model-pill" data-model="mobilenet" style="--active-c: var(--c-mobilenet)">
+            <span class="dot"></span>MobileNet v2 · Classification
+        </button>
+        <button class="pill model-pill" data-model="blazeface" style="--active-c: var(--c-blazeface)">
+            <span class="dot"></span>BlazeFace · Face Detection
+        </button>
+    </div>
+
+    <div class="control-row">
+        <span class="row-label">Backend</span>
+        <button class="pill backend-pill" data-backend="webgl" style="--active-c: var(--c-webgl)">
+            <span class="dot"></span>WebGL (GPU)
+        </button>
+        <button class="pill backend-pill" data-backend="wasm" style="--active-c: var(--c-wasm)">
+            <span class="dot"></span>WebAssembly
+        </button>
+        <button class="pill backend-pill" data-backend="cpu" style="--active-c: var(--c-cpu)">
+            <span class="dot"></span>CPU (Pure JS)
+        </button>
+        <button id="rec-btn" class="pill" style="margin-left: auto">
+            ⏺ Record
+        </button>
+        <button id="exp-btn" class="pill">⬇ Export CSV</button>
+    </div>
+
+    <div id="main">
+        <div id="vision">
+            <video id="webcam" autoplay muted playsinline></video>
+            <canvas id="overlay"></canvas>
+            <div id="rec-overlay"><span class="rd"></span>REC</div>
+            <div id="backend-badge">—</div>
+            <div id="status-layer">
+                <div class="spin"></div>
+                <span id="status-msg">Starting…</span>
+            </div>
+        </div>
+        <div id="right">
+            <div class="stat-grid">
+                <div class="sc">
+                    <div class="lbl">Pred. ms</div>
+                    <div class="val" id="v-lat">—</div>
+                </div>
+                <div class="sc">
+                    <div class="lbl">FPS</div>
+                    <div class="val" id="v-fps">—</div>
+                </div>
+                <div class="sc ram-card">
+                    <div class="lbl">JS Heap MB</div>
+                    <div class="val" id="v-ram">—</div>
+                    <div class="val-sub" id="v-ram-sub"></div>
+                </div>
+                <div class="sc">
+                    <div class="lbl" style="color: var(--c-warmup)">Warmup ms</div>
+                    <div class="val" id="v-warmup" style="color: var(--c-warmup)">
+                        —
+                    </div>
+                </div>
+                <div class="sc" style="grid-column: span 2">
+                    <div class="lbl" style="color: var(--c-setup)">Setup ms</div>
+                    <div class="val" id="v-setup" style="color: var(--c-setup)">—</div>
+                </div>
+            </div>
+            <div id="qoe-panel">
+                <div class="qoe-header"><span class="title">QoE Metrics</span></div>
+                <div class="qoe-cards">
+                    <div class="qcard">
+                        <div class="qlbl" style="color: var(--c-resp)">
+                            Responsiveness
+                        </div>
+                        <div class="qval" id="v-resp" style="color: var(--c-resp)">—</div>
+                        <div class="qeq">runs/min<br />60000 ÷ lat</div>
+                    </div>
+                    <div class="qcard">
+                        <div class="qlbl" style="color: var(--c-smth)">Smoothness</div>
+                        <div class="qval" id="v-smth" style="color: var(--c-smth)">—</div>
+                        <div class="qeq">fps<br />live render</div>
+                    </div>
+                    <div class="qcard">
+                        <div class="qlbl" style="color: var(--c-iacc)">Infer. Acc.</div>
+                        <div class="qval" id="v-iacc" style="color: var(--c-iacc)">—</div>
+                        <div class="qeq">avg conf.<br />[0 – 1]</div>
+                    </div>
+                </div>
+                <div style="font-size: 0.47rem; color: var(--muted); margin-top: 5px">
+                    Metrics reported independently — no composite score
+                </div>
+            </div>
+            <div id="minfo">
+                <strong id="mi-name">—</strong>
+                <div id="mi-task" class="task-badge">—</div>
+                <br />
+                <span id="mi-desc" style="color: var(--muted)">Select a model to begin.</span>
+            </div>
+            <div id="det-box">
+                <h3>This Frame</h3>
+                <ul id="det-list"></ul>
+            </div>
+        </div>
+    </div>
+
+    <div id="charts">
+        <div class="chart-card" style="border-color: var(--c-pred) 33">
+            <h3 style="color: var(--c-pred)">Prediction ms</h3>
+            <div class="ch"><canvas id="c-lat"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h3>FPS</h3>
+            <div class="ch"><canvas id="c-fps"></canvas></div>
+        </div>
+        <div class="chart-card">
+            <h3>Detections</h3>
+            <div class="ch"><canvas id="c-obj"></canvas></div>
+        </div>
+        <div class="chart-card" style="border-color: var(--c-resp) 33">
+            <h3 style="color: var(--c-resp)">Responsiveness (runs/min)</h3>
+            <div class="ch"><canvas id="c-resp"></canvas></div>
+        </div>
+        <div class="chart-card" style="border-color: var(--c-smth) 33">
+            <h3 style="color: var(--c-smth)">Smoothness (fps)</h3>
+            <div class="ch"><canvas id="c-smth"></canvas></div>
+        </div>
+        <div class="chart-card" style="border-color: var(--c-ram) 33">
+            <h3 style="color: var(--c-ram)">JS Heap MB</h3>
+            <div class="ch"><canvas id="c-ram"></canvas></div>
+        </div>
+    </div>
+
+    <div id="lat-sec">
+        <h2>3-Stage Latency Breakdown</h2>
+        <div class="sec-sub">
+            Per model × backend: Setup (load) · Warmup (first inference) ·
+            Prediction (steady-state avg/min/max/σ).<br />Switch backends to
+            populate multiple rows.
+        </div>
+        <div class="stage-legend">
+            <div class="sl-item">
+                <div class="sl-dot" style="background: var(--c-setup)"></div>
+                Setup — model load &amp; framework init
+            </div>
+            <div class="sl-item">
+                <div class="sl-dot" style="background: var(--c-warmup)"></div>
+                Warmup — first inference, shader compile
+            </div>
+            <div class="sl-item">
+                <div class="sl-dot" style="background: var(--c-pred)"></div>
+                Prediction — steady-state inference
+            </div>
+        </div>
+        <div id="lat-body">
+            <p class="no-data-msg">Run a model to populate this table.</p>
+        </div>
+    </div>
+
+    <div id="cmp">
+        <h2>Comparison Summary</h2>
+        <div class="cmp-section-title">By Model (all backends combined)</div>
+        <div class="cmp-grid" id="cmp-model">
+            <p class="no-data-msg">Run each model to populate.</p>
+        </div>
+        <div class="cmp-section-title">By Backend</div>
+        <div class="cmp-grid" id="cmp-backend">
+            <p class="no-data-msg">Switch backends to populate.</p>
+        </div>
+    </div>
+
+    <div id="log-sec">
+        <h2>Session Log <span id="log-count">0 samples</span></h2>
+        <div class="tbl-wrap">
+            <table class="log-t">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Time</th>
+                        <th>Model</th>
+                        <th>Task</th>
+                        <th>Backend</th>
+                        <th style="color: var(--c-pred)">Pred ms</th>
+                        <th>FPS</th>
+                        <th>Det</th>
+                        <th style="color: var(--c-resp)">Resp</th>
+                        <th style="color: var(--c-smth)">Smth</th>
+                        <th style="color: var(--c-iacc)">IAcc</th>
+                        <th style="color: var(--c-ram)">Heap MB</th>
+                    </tr>
+                </thead>
+                <tbody id="log-body">
+                    <tr class="empty-row">
+                        <td colspan="12">
+                            Press ⏺ Record then switch models and backends.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <footer>
+        All inference is client-side · No data leaves the browser · Academic
+        use<br />
+        JS Heap: Chrome/Edge only (performance.memory API)
+    </footer>
+    <script src="index.js"></script>
+</body>
+
+</html>
