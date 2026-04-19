@@ -131,7 +131,7 @@ async function startWebcam() {
   setMsg("Requesting camera…");
   const s = await navigator.mediaDevices.getUserMedia({
     video: {
-      facingMode: "environment",
+      facingMode: "user",
       width: { ideal: 1280 },
       height: { ideal: 720 },
     },
